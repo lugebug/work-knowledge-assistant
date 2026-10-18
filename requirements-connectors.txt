@@ -1,0 +1,5 @@
+apsw==3.54.0.0
+zstandard==0.25.0
+cryptography==49.0.0
+cffi==2.1.1
+pycparser==3.11

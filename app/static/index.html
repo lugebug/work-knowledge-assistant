@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>工作知识库 · 个人工作助手</title>
+  <script src="/boot.js"></script>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/work_focus.css">
+  <script src="/relationships.js" defer></script>
+  <script src="/projects.js" defer></script>
+  <script src="/raw.js" defer></script>
+  <script src="/people.js" defer></script>
+  <script src="/judgments.js" defer></script>
+  <script src="/dimensions.js" defer></script>
+  <script src="/work.js" defer></script>
+  <script src="/work_analysis.js" defer></script>
+  <script src="/work_focus.js" defer></script>
+  <script src="/relevance.js" defer></script>
+  <script src="/live.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <aside class="sidebar" aria-label="工作知识库导航">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">工</span><div><strong>工作知识库</strong><small>个人工作助手</small></div></div>
+    <p class="nav-label">工作空间</p>
+    <nav id="navigation">
+      <a href="#overview" data-page="overview"><span aria-hidden="true">◫</span>工作总览</a>
+      <a href="#projects" data-page="projects"><span aria-hidden="true">▤</span>项目</a>
+      <a href="#tasks" data-page="tasks"><span aria-hidden="true">☑</span>工作</a>
+      <a href="#people" data-page="people"><span aria-hidden="true">◎</span>人员</a>
+      <a href="#reviews" data-page="reviews"><span aria-hidden="true">?</span>待你判断</a>
+      <a href="#organizations" data-page="organizations"><span aria-hidden="true">▦</span>往来单位</a>
+      <a href="#departments" data-page="departments"><span aria-hidden="true">▥</span>组织内部门</a>
+      <a href="#products/capabilities" data-page="products"><span aria-hidden="true">◇</span>产品资料</a>
+      <a href="#history" data-page="history"><span aria-hidden="true">↺</span>修改记录</a>
+      <a href="#sources" data-page="sources"><span aria-hidden="true">⇣</span>数据来源与更新</a>
+    </nav>
+    <div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span>本机工作空间<small>与 Codex 共用数据<br>原始来源只读</small></div>
+  </aside>
+  <main id="main" tabindex="-1">
+    <header class="topbar"><span>知识与工作记录 <span class="topbar-divider">/</span> <span id="breadcrumb">总览</span></span><div class="top-actions"><button id="refresh" class="quiet-button" title="重新加载工作台和本地记录；不采集微信或飞书新内容">刷新页面</button><a class="quiet-button" href="/api/export" download>导出维护结果</a></div></header>
+    <section class="page-heading"><div><p class="eyebrow" id="eyebrow">WORK OVERVIEW</p><h1 id="page-title">总览</h1><p id="page-description">从项目进展到产品需求，保留每一条判断的依据。</p></div><button id="create-button" class="primary-button" hidden>＋ 新建</button></section>
+    <div id="product-tabs" class="tabs" role="navigation" aria-label="产品分类" hidden></div>
+    <section id="work-focus" aria-label="工作分类与关注人" hidden></section>
+    <section id="list-tools" class="list-tools" aria-label="筛选记录" hidden>
+      <label class="search-box"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="搜索当前列表" aria-label="搜索当前列表"></label>
+      <label class="state-filter"><span class="sr-only">按状态筛选</span><select id="state-filter"><option value="">全部状态</option></select></label>
+      <select id="scope-filter" aria-label="按我的项目关系筛选" hidden><option value="">全部项目</option><option value="owned">我负责的项目</option><option value="participated">我参与的项目</option></select>
+      <select id="category-filter" aria-label="按类别筛选" hidden></select>
+      <select id="priority-filter" aria-label="按工作优先级筛选" hidden><option value="">全部优先级</option><option value="高">高</option><option value="普通">普通</option><option value="低">低</option><option value="unset">待判断</option></select>
+      <select id="people-org-filter" aria-label="按所属组织筛选" hidden></select>
+      <select id="people-project-filter" aria-label="按关联项目筛选" hidden></select>
+      <label class="archive-switch"><input type="checkbox" id="show-archived">包含已归档</label>
+      <span id="result-count" class="muted"></span>
+    </section>
+    <p class="relevance-caption">与你直接相关的内容在前，其次是关注与关联内容，其余在后。</p>
+    <div id="content" aria-live="polite"><div class="loading-panel" role="status">正在读取知识库…<p>如果一直未进入，请刷新页面或重新运行工作台启动脚本。</p><a class="secondary-button" href="/">重新打开工作台</a></div></div>
+    <footer class="page-footer"><span id="data-status">读取中</span><span>维护结果保存到本机数据库</span></footer>
+  </main>
+  <dialog id="detail-dialog" aria-labelledby="detail-title"><div id="detail-content"></div></dialog>
+  <dialog id="work-focus-dialog" aria-labelledby="work-focus-title"><header class="dialog-header"><h2 id="work-focus-title">设置关注人</h2><button type="button" class="icon-button" data-action="work-focus-close" aria-label="关闭关注人设置">×</button></header><form id="work-focus-form" class="dialog-body"><div id="work-focus-form-body"></div></form></dialog>
+  <dialog id="source-dialog" aria-labelledby="source-title"><header class="dialog-header"><div><p class="eyebrow">SOURCE DOCUMENT</p><h2 id="source-title">来源文档</h2></div><button class="icon-button" data-action="close-source" aria-label="关闭来源文档">×</button></header><pre id="source-body" class="source-body"></pre></dialog>
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title"><div class="dialog-body"><h2 id="confirm-title">确认操作</h2><p id="confirm-message" class="notice"></p><div class="form-footer"><button class="secondary-button" data-action="confirm-no">取消</button><button class="primary-button" data-action="confirm-yes">确认</button></div></div></dialog>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

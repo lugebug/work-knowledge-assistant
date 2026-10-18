@@ -1,0 +1,7 @@
+{
+  "name": "work-knowledge-assistant-connectors",
+  "private": true,
+  "version": "0.1.0-alpha.1",
+  "description": "Pinned official Feishu CLI for this personal installation",
+  "dependencies": { "@larksuite/cli": "1.0.94" }
+}

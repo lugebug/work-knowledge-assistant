@@ -1,0 +1,2 @@
+# Preserve release bytes and pinned helper hashes across Windows checkouts.
+* -text
