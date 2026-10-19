@@ -60,8 +60,10 @@ def search_messages(conn, platform, conversation_id, since, until, keyword, limi
 
 def resolve_reference(conn, ref):
     """Validate scope before fetching source content; quoted excerpts must match."""
-    if not isinstance(ref, dict) or set(ref) != {'type','id','quote'} or not isinstance(ref['id'],str) or not isinstance(ref['type'],str) or not isinstance(ref['quote'], str) or not 2 <= len(ref['quote']) <= 2000:
+    if not isinstance(ref, dict) or set(ref) != {'type','id','quote'} or not isinstance(ref['id'],str) or not isinstance(ref['type'],str) or not isinstance(ref['quote'], str) or not 1 <= len(ref['quote']) <= 2000:
         raise ValueError('依据需要来源类型、标识和2至2000字的原文摘录。')
+    if len(ref['quote']) == 1 and ref['type'] != 'raw':
+        raise ValueError('单字摘录仅支持已批准聊天的完整原始消息。')
     if ref['type'] == 'message':
         row = conn.execute('SELECT platform,conversation_id FROM messages WHERE id=?', (ref['id'],)).fetchone()
         if not row: raise ValueError('消息依据不存在。')
@@ -80,9 +82,16 @@ def resolve_reference(conn, ref):
         if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='raw_versions'").fetchone():raise ValueError('原始版本不存在。')
         pointer=conn.execute('SELECT source_id FROM raw_versions WHERE id=?',(ref['id'],)).fetchone()
         if not pointer:raise ValueError('原始版本不存在。')
-        source=conn.execute('SELECT name,state FROM raw_sources WHERE id=?',(pointer[0],)).fetchone()
+        source=conn.execute('SELECT name,state,kind FROM raw_sources WHERE id=?',(pointer[0],)).fetchone()
         if not source or source['state']!='approved':raise ValueError('来源未批准；未读取原文。')
-        p=json.loads(conn.execute('SELECT payload FROM raw_versions WHERE id=?',(ref['id'],)).fetchone()[0])
+        version=conn.execute('SELECT payload,object_kind FROM raw_versions WHERE id=?',(ref['id'],)).fetchone()
+        p=json.loads(version['payload'])
+        # Short acknowledgements still need a version-level review receipt.
+        # Accept only the entire one-character chat message, never an arbitrary
+        # character extracted from a longer document or business assertion.
+        if len(ref['quote']) == 1 and (source['kind'] != 'chat' or version['object_kind'] != 'message'
+                                     or p['body'] != ref['quote'] or not ref['quote'].strip()):
+            raise ValueError('单字摘录必须是已批准聊天中完整的非空原文。')
         row={'body':p['body']}
         result=dict(ref,title=p['title'],event_at=p.get('event_at',''),url=p.get('url',''),sender=p.get('sender',''),revision=p.get('revision',''),source_kind='不可覆盖的原始资料版本')
     else:

@@ -57,6 +57,32 @@ def normalize_since(value):
     return parsed.isoformat(timespec='seconds')
 
 
+def upgrade_incremental(db):
+    """Back up an identified installation before the one-time V44 migration."""
+    from store import Store
+    from incremental import Incremental, enabled, source_delta
+    store = Store(db)
+    with store.connect() as conn:
+        if enabled(conn) and source_delta(conn):
+            return {'version': 44, 'already_enabled': True}
+    backup_dir = db.parent / 'backups'
+    backup_dir.mkdir(exist_ok=True)
+    backup = backup_dir / ('before_incremental_v44_' + dt.datetime.now().strftime('%Y%m%d_%H%M%S')
+                           + '_' + uuid.uuid4().hex[:8] + '.db')
+    with backup.open('xb'):
+        pass
+    with closing(sqlite3.connect(db.as_uri() + '?mode=ro', uri=True)) as source, \
+            closing(sqlite3.connect(backup)) as destination:
+        source.backup(destination)
+        if destination.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
+            raise ValueError('升级备份未通过完整性检查，未开始增量迁移：' + str(backup))
+    try:
+        result = Incremental(store).enable()
+    except Exception as error:
+        raise ValueError('增量升级未完成；请保留当前资料并检查一致备份：' + str(backup)) from error
+    return dict(result, backup=str(backup))
+
+
 def initialize(name='我', since=None, data_dir=None):
     existing = settings()
     if existing and existing.get('installation_state', 'ready') == 'ready':
@@ -67,8 +93,10 @@ def initialize(name='我', since=None, data_dir=None):
             row = conn.execute("SELECT value FROM wk_meta WHERE key='installation_id'").fetchone()
             if not row or json.loads(row[0]) != existing['installation_id']:
                 raise ValueError('个人配置和数据库不属于同一次安装；未更改资料。')
-        # Reinstall only updates dependencies and code, never profile, dates or user records.
-        return {'ok': True, 'reused': True, 'database': str(db), 'profile_name': existing['display_name']}
+        # Only review bookkeeping is migrated. Preserve profile, dates and user records.
+        migration = upgrade_incremental(db)
+        return {'ok': True, 'reused': True, 'database': str(db), 'profile_name': existing['display_name'],
+                'incremental': migration}
     if existing and existing.get('installation_state') != 'initializing':
         raise ValueError('未知的安装阶段，请运行 doctor。')
     data = Path(existing['data_dir'] if existing else data_dir or default_data_dir()).expanduser().resolve()
@@ -142,6 +170,8 @@ def initialize(name='我', since=None, data_dir=None):
             conn.execute('INSERT INTO wk_meta VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, json_text(value)))
     for service in (WorkLifecycle, WorkCompletion, WorkPriority, ProjectPriority, FollowThrough):
         service(store).enable()
+    from incremental import Incremental
+    Incremental(store).enable()
     readback = store.snapshot()
     if len(readback['records']['people']) != 1 or readback['records']['tasks'] or readback['records']['projects']:
         raise ValueError('空库初始化读回不一致。')
@@ -290,7 +320,10 @@ def doctor():
     if database_path().is_file():
         with closing(sqlite3.connect(database_path().as_uri() + '?mode=ro', uri=True)) as conn:
             check = conn.execute('PRAGMA quick_check').fetchone()[0]
+            from incremental import enabled, source_delta
+            incremental_ready = enabled(conn) and source_delta(conn)
         checks.append({'item': '数据库完整性', 'ok': check == 'ok'})
+        checks.append({'item': '增量整理', 'ok': incremental_ready, 'version': 44 if incremental_ready else None})
     import importlib.util
     missing = [module for module in ('apsw', 'zstandard', 'cryptography') if importlib.util.find_spec(module) is None]
     checks.append({'item': '微信读取依赖', 'ok': not missing, 'missing': missing})

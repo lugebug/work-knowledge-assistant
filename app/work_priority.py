@@ -74,6 +74,9 @@ class WorkPriority:
 
     @staticmethod
     def token(env, record, assessment=None):
+        if env.get('incremental'):
+            from incremental import priority_token
+            return priority_token(env, 'tasks', record, assessment or {})
         refs = list((assessment or {}).get('sources', []))
         refs += (assessment or {}).get('timing', {}).get('sources', [])
         return digest([env['hashes'].get(('tasks', record['id'])),
@@ -93,7 +96,11 @@ class WorkPriority:
         token = self.token(env, record, a)
         changed = bool(row and row['context_token'] != token)
         time_due = bool(a.get('review_on') and a['review_on'] <= today)
+        if env.get('incremental'):
+            time_due = False
         stale = not closed and (not row or changed or time_due)
+        if env.get('incremental') and manual:
+            stale = False
         questions = [dict(id=qid, question=env['cards'][qid]['question'], state=env['cards'][qid]['state'])
                      for qid in a.get('judgment_ids', []) if qid in env['cards']]
         needs_user = bool(not closed and a.get('outcome') == 'needs_user'
@@ -157,7 +164,7 @@ class WorkPriority:
                     context_token=v['context_token'], work=r, current=v,
                     project=env['records']['projects'].get(r.get('project_id'), {}),
                     sources=source_refs(r), questions=[env['cards'][qid] for qid in sorted(qids)]))
-            return dict(pending=pending, items=items, instructions=INSTRUCTIONS)
+            return dict(pending=pending, items=items, instructions=__import__('incremental').PRIORITY_INSTRUCTIONS if env.get('incremental') else INSTRUCTIONS)
 
     def _refs(self, c, rid, refs):
         # The goal service accepts immutable source versions and this work's own
@@ -172,11 +179,12 @@ class WorkPriority:
             raise StoreError('优先级核对需当前版本、判断、理由、来源、时间性质和复核日。')
         a = deepcopy({k: item[k] for k in required - {'id', 'work_revision', 'revision', 'context_token'}})
         today = dt.date.fromisoformat(now()[:10])
+        incremental = __import__('incremental').enabled(c)
         try:
-            review_on = dt.date.fromisoformat(a['review_on'])
+            review_on = dt.date.fromisoformat(a['review_on']) if a['review_on'] else None
         except (ValueError, TypeError):
             raise StoreError('请提供有效的优先级复核日期。') from None
-        if a['assessed_on'] != today.isoformat() or not today < review_on <= today + dt.timedelta(days=7):
+        if a['assessed_on'] != today.isoformat() or (not incremental and (not review_on or not today < review_on <= today + dt.timedelta(days=7))):
             raise StoreError('按今天的真实情况判断，并在未来七天内复核；复核日不是业务截止。')
         if a['outcome'] not in ('automatic', 'needs_user', 'manual') or a['basis'] not in BASES:
             raise StoreError('请区分直接判断、待你判断和保留人工设定。')

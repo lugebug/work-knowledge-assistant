@@ -56,6 +56,13 @@ class WorkAnalysis:
         project = project or {}
         # A display ordering choice does not change work facts or reminders.
         context = {k: project.get(k) for k in FIELDS['projects'] if k != 'priority'}
+        from incremental import enabled, provenance
+        if enabled(c):
+            # Project narrative is routed as a delta, not broadcast to every task.
+            context = {}
+            work['_provenance'] = provenance(work['_provenance'])
+            work.pop('priority', None)
+            work['_provenance'].pop('priority', None)
         from work_completion import WorkCompletion
         goal = WorkCompletion.goal(c, record['id'])
         if goal:
@@ -69,7 +76,12 @@ class WorkAnalysis:
                   JOIN raw_sources s ON s.id=v.source_id
                   LEFT JOIN raw_heads h ON h.source_id=v.source_id AND h.object_id=v.object_id
                   WHERE v.id=?''', (source.get('id'),)).fetchone()
-                source_state.append((source.get('id'), tuple(row) if row else None))
+                state = tuple(row) if row else None
+                if state and __import__('incremental').source_delta(c):
+                    # Revisions are processed once as incoming evidence; retain
+                    # source authority in the saved analysis, not the live head.
+                    state = state[1:]
+                source_state.append((source.get('id'), state))
         return digest({'work': work, 'project': context, 'source_state': sorted(source_state)})
 
     def _project(self, c, record):
@@ -91,6 +103,9 @@ class WorkAnalysis:
                 completion_error = str(exc)
         changed = bool(analysis and (analysis.get('context_token') != token or completion_error))
         time_due = bool(analysis.get('review_on') and analysis['review_on'] < today)
+        from incremental import enabled
+        if enabled(c):
+            time_due = False
         stale = changed or time_due
         decision = analysis.get('decision', {}).get('state', 'pending')
         current = unique_text(record.get('progress'), record.get('result')) or '当前情况尚未整理。'
@@ -195,7 +210,8 @@ class WorkAnalysis:
             clean[key] = clean[key].strip()
         if any(not clean[key] for key in ('current', 'rationale', 'timing_basis', 'context_token')):
             raise StoreError('请说明当前情况及分析、时间安排的依据。')
-        if not closed and (not clean['next_step'] or not clean['next_key'] or not clean['review_on']):
+        if not closed and (not clean['next_step'] or not clean['next_key'] or
+                           (not clean['review_on'] and not __import__('incremental').enabled(c))):
             raise StoreError('进行中的工作应说明下一步、稳定行动标识和下次复核时间。')
         if clean['timing_kind'] not in ('agreed', 'suggested', 'mixed', 'none'):
             raise StoreError('时间须区分已有约定、建议或两者兼有。')

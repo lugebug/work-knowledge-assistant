@@ -71,6 +71,9 @@ class ProjectPriority:
 
     @staticmethod
     def token(env, r, assessment=None):
+        if env.get('incremental'):
+            from incremental import priority_token
+            return priority_token(env, 'projects', r, assessment or {})
         refs = (assessment or {}).get('sources', [])
         linked = sorted((wid, env['hashes'][('tasks', wid)]) for wid, w in env['records']['tasks'].items() if w.get('project_id') == r['id'])
         cards = [env['cards'][qid] for qid in env['by_target'].get(('projects', r['id']), [])]
@@ -90,6 +93,8 @@ class ProjectPriority:
         a = json.loads(row['payload']) if row else {}
         changed = bool(row and row['context_token'] != self.token(env, r, a))
         due = bool(a.get('review_on') and a['review_on'] <= (today or now()[:10]))
+        if env.get('incremental'):
+            due = False
         questions = [dict(id=qid, question=env['cards'][qid]['question'], state=env['cards'][qid]['state'])
                      for qid in a.get('judgment_ids', []) if qid in env['cards']]
         needs_user = bool(not closed and a.get('outcome') == 'needs_user' and any(q['state'] in ('pending', 'deferred') for q in questions))
@@ -101,7 +106,7 @@ class ProjectPriority:
         if manual:
             reason = '按你明确设置的项目优先级执行。' + ((' 最近核对：' + reason) if reason else '')
         result = dict(priority=priority or '', mode=mode, closed=closed, needs_user=needs_user,
-                      needs_review=not closed and (not row or changed or due), reason=reason, scope=a.get('scope', ''),
+                      needs_review=not closed and not (env.get('incremental') and manual) and (not row or changed or due), reason=reason, scope=a.get('scope', ''),
                       review_reason='项目、关联工作、依据或决定有变化' if changed else '已到复核日' if due else '尚未判断' if not row else '',
                       review_on=a.get('review_on', ''), reviewed_at=row['reviewed_at'] if row else '')
         if not compact:
@@ -146,7 +151,7 @@ class ProjectPriority:
                 items.append(dict(id=r['id'], project_revision=r['revision'], revision=v['revision'],
                     context_token=v['context_token'], project=r, current=v, works=works,
                     sources=source_refs(r), questions=[env['cards'][qid] for qid in env['by_target'].get(('projects', r['id']), [])]))
-            return dict(pending=pending, items=items, instructions=INSTRUCTIONS)
+            return dict(pending=pending, items=items, instructions=__import__('incremental').PRIORITY_INSTRUCTIONS if env.get('incremental') else INSTRUCTIONS)
 
     def _refs(self, c, rid, refs, env):
         from people import People
@@ -187,11 +192,12 @@ class ProjectPriority:
             raise StoreError('项目优先级须包含当前版本、阶段范围、判断理由、已知与未知及依据。')
         a = deepcopy({k: item[k] for k in required - {'id', 'project_revision', 'revision', 'context_token'}})
         today = dt.date.fromisoformat(now()[:10])
+        incremental = __import__('incremental').enabled(c)
         try:
-            review_on = dt.date.fromisoformat(a['review_on'])
+            review_on = dt.date.fromisoformat(a['review_on']) if a['review_on'] else None
         except (ValueError, TypeError):
             raise StoreError('请提供有效的复核日期。') from None
-        if a['assessed_on'] != today.isoformat() or not today < review_on <= today + dt.timedelta(days=7):
+        if a['assessed_on'] != today.isoformat() or (not incremental and (not review_on or not today < review_on <= today + dt.timedelta(days=7))):
             raise StoreError('须按今天的情况判断，并在未来七天内复核。')
         if a['outcome'] not in ('automatic', 'needs_user', 'manual') or a['priority'] not in (*LEVELS, '') or a['basis'] not in BASES:
             raise StoreError('项目优先级或判断方式无效。')

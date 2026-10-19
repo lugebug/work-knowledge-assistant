@@ -1,17 +1,17 @@
-# Codex 日常整理顺序
+# Codex 日常增量整理顺序
 
-所有命令使用当前项目 `.venv\Scripts\python.exe -X utf8`。省略数据库参数时读取本安装的 `config.local.json`。输入、批次和报告放在个人数据目录，使用新文件名，不重放旧判断覆盖新情况。
+使用当前项目 `.venv\Scripts\python.exe -X utf8`。省略数据库参数时读取本安装配置；输入、批次和报告保存在个人数据目录，使用新的文件名。首次安装和升级后均采用 V44 增量整理，具体输入格式见 [incremental.md](incremental.md)。
 
-1. **读当前状态。** 运行 `app/raw_manage.py status`、`app/periodic_update.py status`、`app/manage.py review-status`。确认本人账号、来源授权和失败缺口。提醒已启用时先运行 `app/reminders.py cloud-sync`，未启用时跳过。
-2. **采集范围内资料。** 运行 `app/periodic_update.py collect`。飞书全范围发现依赖本人的范围确认；微信只处理已批准的会话。失败保留原成功位置，不把零条或本机缺历史当覆盖完成。
-3. **取待整理版本。** 用 `app/periodic_update.py packet --limit 100 --output 新批次.json`。逐条读原文，结合完整工作、相关人员、项目及较新用户决定判断。即使工作刚分析过，也检查新证据是否影响它。
-4. **先明确原目标。** 用 `app/manage.py work-goal-packet 工作身份 --output 文件`，必要时 `work-goal-save --input 文件` 保存带依据的完成条件。逐条核对已达成、未达成或未知；独立后续不阻塞已经达成的原工作，原要求也不能被旧标题缩小。
-5. **实际更新业务。** 用 `work-append` 更新明确进展、结果、状态和时间。先复用已有事项，只有独立新工作才 `work-create`；仅是建议用 `work-propose`。每版证据都用 `work-evidence-review --input 文件` 留下判断，无变化也说明原因。有重要歧义时 `judgment-propose --input 文件` 建立具体可见问题。
-6. **落实用户答复。** 无新原文也查看最新已处理卡片、补充说明及修订。把明确内容归入人员关系、工作、项目及下一步，保留原话。按问题身份与答复修订去重，不能只看卡片已确认。
-7. **保存分析和后续承接。** `work-analysis-packet` → `work-analyze`；`follow-through-packet` → `follow-through-review`。默认两段式分析。按原目标判断，已完成事项停止原推进建议；遗留的独立行动要有对应工作或明确理由。
-8. **重新核对排序与提醒。** `work-priority-packet` → `work-priority-review`；`project-priority-packet` → `project-priority-review`。有明确临近约定、关键阻塞或重大影响才提升；不知道不等于高优先级。提醒已启用时取 `app/reminders.py packet`，保存当前计划并同步云端，核对实际队列。
-9. **读回后登记完成。** 读取受影响记录、问题和实际维护流水，再 `app/periodic_update.py finish --input 回执.json`。不得只写完成回执而不实际更新业务。最后 `judgment-reconcile`、`review-status`、`project-review-status`、`app/periodic_update.py review-check`。
+1. **核对并采集获准资料。** 读取 `app/raw_manage.py status` 和 `app/periodic_update.py status --summary`。提醒已启用时先 `app/reminders.py cloud-sync`。运行 `app/periodic_update.py collect --summary --output 本轮采集报告.json`，只采集批准范围；失败不推进成功位置，本机缺历史不算完整覆盖。
+2. **取得本轮差异。** 运行 `app/incremental.py prepare --output 本轮差异.json`。逐条读取未整理的新版本和修订，以及变化的主体和人工答复。保留新资料原文，利用精简索引定位已有工作，再按身份读取必要详情。无差异时不展开全部人员、工作和项目重审。
+3. **先更新受影响工作。** 对照原目标、逐条完成条件和本项时间；必要时 `app/manage.py work-goal-packet` / `work-goal-save`。明确进展、结果、状态、时间用 `work-append` 实际写回；独立新工作才 `work-create`，未承接建议用 `work-propose`。原目标达成即结束，不临时追加认可、审批或补纪要条件。原请求有多项交付时也不能被旧标题缩小。
+4. **逐版本判断并落实答复。** 每版原文用 `work-evidence-review` 留有依据的判断，无变化也说明原因。新答复和修订按问题身份及答复版本落实到相应主体、工作和安排，保留原话及人工决定。卡片确认不等于语义整理完毕。重要歧义复用或建立可见问题，普通空白不机械追问。
+5. **再汇总受影响项目。** 以本轮真实工作变化更新相关项目；项目一般说明不使全部关联工作、分析和提醒失效。已确认的人员、组织、角色和优先级无新证据不重查。
+6. **只补实际待核对项。** 运行 `app/incremental.py pending`。按返回身份定向取 `work-analysis-packet --id`、`follow-through-packet --targets`，保存必要分析和行动承接。首次未判断项正常处理；只有新事实确实推翻原排序依据时才登记 `priority-impact`，然后定向核对工作或项目优先级。内部复核日期过去不触发重算。
+7. **维护必要提醒。** 已启用时检查真实日期／时刻、完成取消、用户暂停改时和实际送达回执。只有安排或依据实质变化才更新计划；引用资料出现未整理修订时先暂停相关提醒，核对为无变化且留下回执后可恢复。保留稳定节点身份，不重发已送达节点。
+8. **读回并登记原文回执。** 核对实际业务、问题和维护流水，使用 `app/periodic_update.py finish --input 回执.json`。它仍验证逐版本判断、写回和后续承接。超过单批上限时继续取剩余版本，不遗漏中间修订。完成必要问题归并并同步提醒，再运行 `app/periodic_update.py review-check --summary --output 完整核对报告.json`。
+9. **完成本轮检查点。** `app/incremental.py settle 本轮身份` 返回当前准确差异。为每项变化主体和答复写明如何落实，再 `checkpoint 回执.json`。如期间有新资料或人工修改，只补新差异后重新读取；不能强行替换凭据或越过未整理版本。无变化时也正常留空差异回执。
 
-命令的必填参数使用 `--help` 查询，包中各模块的校验逻辑及批次中的 `instructions` 是准确输入契约。输入必须引用现有原文身份和能匹配的摘录，使用最新修订号及上下文凭据；冲突时重新阅读变化，不能只替换版本强行提交。
+命令必填参数用 `--help` 查询；各批次中的说明及程序校验是准确输入契约。所有业务写入走共用维护入口，不能直接改表。无变化时不重复保存分析、优先级或人工答复。
 
-报告至少区分：来源覆盖和缺口、原文待整理、工作待核对、业务待用户判断、提醒计划及实际同步状态。程序校验通过不证明所有语义判断一定正确；以原文和实际写回核对。
+报告分别说明来源覆盖和缺口、原文待整理、受影响工作待核对、业务待用户判断、提醒及云端同步状态。内部检查通过不替代原文和实际业务结果核对。后台任务在没有变化或可行动事项时保持安静，仅在有意义变化、完成、失败或需要用户处理时通知。

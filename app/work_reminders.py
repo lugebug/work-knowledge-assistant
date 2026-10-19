@@ -151,6 +151,10 @@ class WorkReminders:
             return clean
 
     def _context(self, c, record, project):
+        from incremental import enabled, analysis_content
+        if enabled(c):
+            return digest({'work': self.analysis.context_token(c, record, project),
+                           'analysis': analysis_content(record.get('_work_analysis') or {})})
         return digest({'work': self.analysis.context_token(c, record, project),
                        'analysis': record.get('_work_analysis') or {}})
 
@@ -172,6 +176,14 @@ class WorkReminders:
         a = record.get('_work_analysis') or {}
         if not a or a.get('context_token') != self.analysis.context_token(c, record, project):
             return '工作或依据已变化，先更新分析和提醒'
+        from incremental import source_delta, pending_source_edit
+        if source_delta(c):
+            from work_analysis import source_refs
+            from work_completion import WorkCompletion
+            goal = WorkCompletion.goal(c, record['id']) or {}
+            refs = source_refs(record) + [ref for item in goal.get('criteria', []) for ref in item['sources']]
+            if pending_source_edit(c, refs):
+                return '引用依据出现未整理修订，先核对再提醒'
         if a.get('decision', {}).get('state') == 'dismissed':
             return '用户已否定当前建议，先重新整理'
         from work_completion import WorkCompletion

@@ -139,10 +139,12 @@ class Periodic:
                     'tasks_discovery':json.loads(task_discovery[0]) if task_discovery else {'enabled':False},
                     'reviewed': c.execute('SELECT count(*) FROM wk_review_receipts').fetchone()[0]}
 
-    def packet(self, limit=100):
+    def packet(self, limit=100, compact=None):
         if not 1 <= limit <= 200: raise StoreError('每批1至200条。')
         with self.store.connect() as c:
             c.execute('BEGIN IMMEDIATE')
+            if compact is None:
+                compact = __import__('incremental').enabled(c)
             rows = c.execute('''SELECT v.*,s.name,s.revision AS source_revision,h.version_id AS current_version
               FROM raw_versions v JOIN raw_sources s ON s.id=v.source_id
               LEFT JOIN wk_review_receipts r ON r.version_id=v.id
@@ -183,6 +185,15 @@ class Periodic:
         with self.store.connect() as c:
             project_index=[{k:r.get(k) for k in ('id','name','state','stage','next_action','decision','decision_reason')}
                            for r in self.store._records(c,'projects').values() if not r.get('archived')]
+        if compact:
+            # All unseen source versions remain verbatim. Related details are read
+            # once by ID, rather than repeated in four full review queues.
+            for item in items:
+                item.pop('work_review', None)
+            return {'packet_id': pid, 'items': items,
+                    'work_index': [{k: r.get(k) for k in ('id','title','state','project_id','owner','participants')} for r in work_index],
+                    'project_index': [{k:r.get(k) for k in ('id','name','state')} for r in project_index],
+                    'work_review_required': work_review_required}
         return {'packet_id': pid, 'items': items, 'work_index': work_index,'project_index':project_index,
                 'work_priority': __import__('work_priority').WorkPriority(self.store).packet(20),
                 'project_priority': __import__('project_priority').ProjectPriority(self.store).packet(20),
@@ -250,7 +261,7 @@ class Periodic:
                         for change_id in proof:
                             change=c.execute('SELECT kind,record_id FROM wk_changes WHERE id=?',(change_id,)).fetchone()
                             if change['kind']=='tasks':targets.add(change['record_id'])
-                            elif change['kind']=='projects':
+                            elif change['kind']=='projects' and not __import__('incremental').enabled(c):
                                 targets.update(t['id'] for t in self.store._records(c,'tasks').values()
                                                if t.get('project_id')==change['record_id'] and t.get('_work_analysis'))
                         for target in targets:
@@ -290,7 +301,8 @@ class Periodic:
                         coverage_targets.add((change['kind'],change['record_id']))
                 review=lifecycle.get(c,vid)
                 if review:
-                    coverage_targets.update(('tasks',x['work_id']) for x in review['outcomes'])
+                    coverage_targets.update(('tasks',x['work_id']) for x in review['outcomes']
+                        if not __import__('incremental').enabled(c) or x.get('action') != 'unchanged')
                 for qid in card_ids:
                     card=c.execute('SELECT payload FROM wk_judgment_cards WHERE id=?',(qid,)).fetchone()
                     if card:
@@ -441,7 +453,8 @@ class Periodic:
 def main():
     sys.stdout.reconfigure(encoding='utf-8')
     p=argparse.ArgumentParser();p.add_argument('--db');sub=p.add_subparsers(dest='command',required=True)
-    for command in ('status','collect','review-check'):sub.add_parser(command)
+    for command in ('status','collect','review-check'):
+        q=sub.add_parser(command);q.add_argument('--summary',action='store_true');q.add_argument('--output')
     q=sub.add_parser('discover-materials');q.add_argument('--since',default=history_since());q.add_argument('--register',action='store_true');q.add_argument('--output',required=True)
     q=sub.add_parser('discover-tasks');q.add_argument('--register',action='store_true');q.add_argument('--output',required=True)
     q=sub.add_parser('baseline');q.add_argument('--input',required=True)
@@ -465,6 +478,14 @@ def main():
         result=job.discover_tasks(register=args.register)
         with Path(args.output).open('x',encoding='utf-8') as f:json.dump(result,f,ensure_ascii=False,indent=2)
     else:result=getattr(job,args.command.replace('-','_'))()
+    if args.command in ('status','collect','review-check'):
+        if args.output:
+            Path(args.output).write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+        if args.summary:
+            if args.command=='review-check':
+                result={k:result[k] for k in ('ready','checks','judgments','description')}
+            elif args.command=='status':
+                result={k:v for k,v in result.items() if k.startswith('pending_') or k in ('reviewed','judgments','trial_end')}
     print(json.dumps(result,ensure_ascii=False,indent=2))
     if args.command=='review-check' and not result['ready']:sys.exit(2)
 

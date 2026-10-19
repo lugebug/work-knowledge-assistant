@@ -70,6 +70,8 @@ class FollowThrough:
         return bool(c.execute("SELECT 1 FROM sqlite_master WHERE name=?", (name,)).fetchone())
 
     def context(self, c):
+        from incremental import enabled, analysis_content, provenance
+        incremental = enabled(c)
         records = {kind: self.store._records(c, kind) for kind in KINDS}
         cards, by_target = {}, {}
         if self.exists(c, 'wk_judgment_cards'):
@@ -93,6 +95,8 @@ class FollowThrough:
               SELECT v.id,s.state,s.revision,h.version_id FROM raw_versions v
               JOIN raw_sources s ON s.id=v.source_id
               LEFT JOIN raw_heads h ON h.source_id=v.source_id AND h.object_id=v.object_id''')}
+            if incremental and __import__('incremental').source_delta(c):
+                raw = {vid: state[:2] for vid, state in raw.items()}
         reviews = {}
         if self.exists(c):
             reviews = {(r['kind'], r['record_id']): dict(r) for r in c.execute('SELECT * FROM wk_followthrough_reviews')}
@@ -122,9 +126,18 @@ class FollowThrough:
                 value['evidence'] = evidence.get(rid, []) if kind == 'tasks' else []
                 source_record = dict(record, _provenance=value['provenance'])
                 value['sources'] = sorted((r['id'], raw.get(r['id'])) for r in source_refs(source_record) if r.get('type') == 'raw')
+                if incremental:
+                    value['analysis'] = analysis_content(value['analysis'])
+                    value['provenance'] = provenance(value['provenance'])
+                    # Evidence receipts prove processing, not a change of business facts.
+                    value.pop('evidence', None)
+                    value.pop('priority', None)
+                    value['provenance'].pop('priority', None)
                 hashes[(kind, rid)] = digest(value)
+        impacts = {(r['kind'], r['record_id']): r['generation'] for r in c.execute(
+            'SELECT * FROM wk_incremental_priority_impacts')} if incremental else {}
         return dict(records=records, cards=cards, by_target=by_target, hashes=hashes,
-                    reviews=reviews, proposals=proposals, raw=raw)
+                    reviews=reviews, proposals=proposals, raw=raw, incremental=incremental, priority_impacts=impacts)
 
     def token(self, env, kind, rid):
         record = env['records'].get(kind, {}).get(rid)
@@ -134,7 +147,7 @@ class FollowThrough:
         if kind == 'projects':
             related = sorted((wid, env['hashes'][('tasks', wid)]) for wid, w in env['records']['tasks'].items()
                              if w.get('project_id') == rid)
-        elif record.get('project_id') in env['records']['projects']:
+        elif not env.get('incremental') and record.get('project_id') in env['records']['projects']:
             pid = record['project_id']
             related = [(pid, env['hashes'][('projects', pid)])]
         # Outcomes referenced by a review can change without changing the source
